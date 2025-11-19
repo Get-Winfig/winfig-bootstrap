@@ -729,6 +729,10 @@ function Optimize-Registry {
 
             Show-SuccessMessage "Successfully optimized '$description'."
             Log-Message -Message "Successfully set '$name' to '$value' in '$key'." -Level "SUCCESS"
+            Show-InfoMessage "Restarting Explorer"
+            Log-Message -Message "Restarting Explorer for registry to take effect" -Level "INFO"
+            Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+            Start-Process explorer
         } catch {
             Show-ErrorMessage "Failed to optimize '$description': $($_.Exception.Message)"
             Log-Message -Message "Failed to set '$name' in '$key': $($_.Exception.Message)" -Level "ERROR"
@@ -969,10 +973,10 @@ function Install-Packages {
         $permission = $pkg.Permission
 
         Write-SubsectionHeader -Title "Processing: $pkgName"
-        Show-InfoMessage "Description: $pkgDescription"
-        if ($pkgHomepage) {
-            Show-InfoMessage "Homepage: $pkgHomepage"
-        }
+        Show-InfoMessage "$pkgDescription"
+        Show-InfoMessage "$pkgHomepage"
+        Show-InfoMessage "$source"
+
         Log-Message -Message "Processing package: $pkgId ($pkgName)" -Level "INFO"
         $totalPackagesCount++
 
@@ -1080,6 +1084,58 @@ trap {
 # ====================================================================== #
 #  Main Script Execution
 # ====================================================================== #
+
+Winfig-Banner
+Write-SectionHeader -Title "Creating Restore Point"
+try {
+    if (-not (Get-Command Checkpoint-Computer -ErrorAction SilentlyContinue)) {
+        Show-WarningMessage "Checkpoint-Computer not available on this system. Skipping restore point creation."
+        Log-Message -Message "Checkpoint-Computer cmdlet missing." -Level "WARN"
+    } else {
+        $drive = "C:\"
+        # Ensure System Restore is enabled for system drive
+        $hasRestorePoints = Get-ComputerRestorePoint -ErrorAction SilentlyContinue
+        if (-not $hasRestorePoints) {
+            Show-WarningMessage "System Restore appears disabled for $drive. Enabling..."
+            Log-Message -Message "Enabling System Restore on $drive" -Level "INFO"
+            try {
+                Enable-ComputerRestore -Drive $drive -ErrorAction Stop
+                Log-Message -Message "Enabled System Restore on $drive" -Level "SUCCESS"
+            } catch {
+                Show-ErrorMessage "Failed to enable System Restore: $($_.Exception.Message)"
+                Log-Message -Message "Enable-ComputerRestore failed: $($_.Exception.Message)" -Level "ERROR"
+            }
+        }
+
+        $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        $description = "Winfig Restore Point - $timestamp"
+        $maxRetries = 3
+        $attempt = 0
+        $created = $false
+        while (-not $created -and $attempt -lt $maxRetries) {
+            $attempt++
+            try {
+                Log-Message -Message "Creating restore point (attempt #$attempt): $description" -Level "INFO"
+                Checkpoint-Computer -Description $description -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+                Show-SuccessMessage "Restore point created: $description"
+                Log-Message -Message "Restore point creation succeeded." -Level "SUCCESS"
+                $created = $true
+            } catch {
+                Show-WarningMessage "Attempt #$attempt failed: $($_.Exception.Message)"
+                Log-Message -Message "Checkpoint-Computer attempt #$attempt failed: $($_.Exception.Message)" -Level "WARN"
+                Start-Sleep -Seconds (5 * $attempt)
+            }
+        }
+
+        if (-not $created) {
+            Show-ErrorMessage "Failed to create restore point after $maxRetries attempts."
+            Log-Message -Message "Restore point creation failed after $maxRetries attempts." -Level "ERROR"
+        }
+    }
+} catch {
+    Show-ErrorMessage "Unexpected error while creating restore point: $($_.Exception.Message)"
+    Log-Message -Message "Unexpected error while creating restore point: $($_.Exception.Message)" -Level "ERROR"
+}
 
 Winfig-Banner
 
@@ -1434,5 +1490,6 @@ if ($InstallPrompt) {
 Write-Host ""
 
 Write-SectionHeader -Title "Thank You For Using Winfig Bootstrap" -Description "https://github.com/Get-Wingig/"
+Show-WarningMessage -Message "Restart Windows to apply changes"
 Write-Host ""
 Log-Message -Message "Logging Completed." -EndRun
