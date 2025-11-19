@@ -728,10 +728,6 @@ function Optimize-Registry {
 
             Show-SuccessMessage "Successfully optimized '$description'."
             Log-Message -Message "Successfully set '$name' to '$value' in '$key'." -Level "SUCCESS"
-            Show-InfoMessage "Restarting Explorer"
-            Log-Message -Message "Restarting Explorer for registry to take effect" -Level "INFO"
-            Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
-            Start-Process explorer
         } catch {
             Show-ErrorMessage "Failed to optimize '$description': $($_.Exception.Message)"
             Log-Message -Message "Failed to set '$name' in '$key': $($_.Exception.Message)" -Level "ERROR"
@@ -1453,6 +1449,10 @@ if ($OptimizePrompt) {
     Show-InfoMessage "Starting Registry Optimization process..."
     Log-Message -Message "User confirmed Registry Optimization process." -Level "INFO"
     Optimize-Registry
+    Show-InfoMessage "Restarting Explorer"
+    Log-Message -Message "Restarting Explorer for registry to take effect" -Level "INFO"
+    Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+    Start-Process explorer
 } else {
     Write-Host ""
     Show-InfoMessage "Registry Optimization process skipped by user."
