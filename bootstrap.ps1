@@ -214,7 +214,6 @@ $Script:Packages = @(
     @{ ID = "nvm"; Name = "nvm-windows - Node Version Manager"; Description = "Easily switch between Node.js versions and manage multiple development environments."; Homepage = "https://github.com/coreybutler/nvm-windows/" ; source = "choco"; Permission = "true"},
     @{ ID = "exiftool"; Name = "ExifTool - Metadata Editor"; Description = "Powerful command-line tool for reading, writing, and editing metadata in images and files."; Homepage = "https://exiftool.org/" ; source = "choco"; Permission = "true"},
     @{ ID = "ntop.portable"; Name = "Ntop - Htop for Windows"; Description = "Htop-like system-monitor with Vi-emulation for Windows. Because using Task Manager is not cool enough."; Homepage = "https://github.com/gsass1/NTop/" ; source = "choco"; Permission = "false"},
-    # @{ ID = "tig"; Name = "Tig - Text-mode Interface for Git"; Description = "Text-mode interface for Git repositories, providing a visual way to browse history and stage changes."; Homepage = "https://jonas.github.io/tig/" ; source = "choco"; Permission = "true"},
     @{ ID = "delta"; Name = "Delta - Syntax-highlighting Pager"; Description = "Syntax-highlighting pager for Git, providing a better diff experience."; Homepage = "https://github.com/dandavison/delta/" ; source = "choco"; Permission = "true"},
     @{ ID = "windhawk"; Name = "Windhawk - Windows Customizer"; Description = "Advanced Windows customization tool with plugin system for enhancing desktop experience."; Homepage = "https://windhawk.net/" ; source = "choco"; Permission = "true"},
     @{ ID = "discord"; Name = "Discord - Communication Platform"; Description = "All-in-one voice, video, and text chat for communities, gamers, and teams."; Homepage = "https://discord.com/" ; source = "choco"; Permission = "false"},
@@ -1087,55 +1086,71 @@ trap {
 
 Winfig-Banner
 Write-SectionHeader -Title "Creating Restore Point"
-try {
-    if (-not (Get-Command Checkpoint-Computer -ErrorAction SilentlyContinue)) {
-        Show-WarningMessage "Checkpoint-Computer not available on this system. Skipping restore point creation."
-        Log-Message -Message "Checkpoint-Computer cmdlet missing." -Level "WARN"
-    } else {
-        $drive = "C:\"
-        # Ensure System Restore is enabled for system drive
-        $hasRestorePoints = Get-ComputerRestorePoint -ErrorAction SilentlyContinue
-        if (-not $hasRestorePoints) {
-            Show-WarningMessage "System Restore appears disabled for $drive. Enabling..."
-            Log-Message -Message "Enabling System Restore on $drive" -Level "INFO"
-            try {
-                Enable-ComputerRestore -Drive $drive -ErrorAction Stop
-                Log-Message -Message "Enabled System Restore on $drive" -Level "SUCCESS"
-            } catch {
-                Show-ErrorMessage "Failed to enable System Restore: $($_.Exception.Message)"
-                Log-Message -Message "Enable-ComputerRestore failed: $($_.Exception.Message)" -Level "ERROR"
+Write-Host ""
+
+$restorprompt = Prompt-UserConfirmation -PromptMessage "Do you want to Create a Restore Point? (Y/N): " -PromptColor $Script:WinfigColors.Primary
+
+if (-not $restorprompt) {
+    Show-InfoMessage "User chose to skip Restore Point creation."
+    Log-Message -Message "User skipped Restore Point creation." -Level "INFO"
+} else {
+    try {
+        if (-not (Get-Command Checkpoint-Computer -ErrorAction SilentlyContinue)) {
+            Show-WarningMessage "Checkpoint-Computer not available on this system. Skipping restore point creation."
+            Log-Message -Message "Checkpoint-Computer cmdlet missing." -Level "WARN"
+        } else {
+            $drive = "C:\"
+            # Ensure System Restore is enabled for system drive
+            $hasRestorePoints = Get-ComputerRestorePoint -ErrorAction SilentlyContinue
+            if (-not $hasRestorePoints) {
+                Show-WarningMessage "System Restore appears disabled for $drive. Enabling..."
+                Log-Message -Message "Enabling System Restore on $drive" -Level "INFO"
+                try {
+                    Enable-ComputerRestore -Drive $drive -ErrorAction Stop
+                    Log-Message -Message "Enabled System Restore on $drive" -Level "SUCCESS"
+                } catch {
+                    Show-ErrorMessage "Failed to enable System Restore: $($_.Exception.Message)"
+                    Log-Message -Message "Enable-ComputerRestore failed: $($_.Exception.Message)" -Level "ERROR"
+                    Show-WarningMessage "Continuing without restore point..."
+                }
+            }
+
+            $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            $description = "Winfig Restore Point - $timestamp"
+            $maxRetries = 3
+            $attempt = 0
+            $created = $false
+
+            while (-not $created -and $attempt -lt $maxRetries) {
+                $attempt++
+                try {
+                    Log-Message -Message "Creating restore point (attempt #$attempt): $description" -Level "INFO"
+                    Checkpoint-Computer -Description $description -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+                    Show-SuccessMessage "Restore point created: $description"
+                    Log-Message -Message "Restore point creation succeeded." -Level "SUCCESS"
+                    $created = $true
+                } catch {
+                    Show-WarningMessage "Attempt #$attempt failed: $($_.Exception.Message)"
+                    Log-Message -Message "Checkpoint-Computer attempt #$attempt failed: $($_.Exception.Message)" -Level "WARN"
+                    if ($attempt -lt $maxRetries) {
+                        Start-Sleep -Seconds (5 * $attempt)
+                    }
+                }
+            }
+
+            if (-not $created) {
+                Show-WarningMessage "Failed to create restore point after $maxRetries attempts. Continuing with script execution..."
+                Log-Message -Message "Restore point creation failed after $maxRetries attempts." -Level "WARN"
             }
         }
-
-        $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-        $description = "Winfig Restore Point - $timestamp"
-        $maxRetries = 3
-        $attempt = 0
-        $created = $false
-        while (-not $created -and $attempt -lt $maxRetries) {
-            $attempt++
-            try {
-                Log-Message -Message "Creating restore point (attempt #$attempt): $description" -Level "INFO"
-                Checkpoint-Computer -Description $description -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
-                Show-SuccessMessage "Restore point created: $description"
-                Log-Message -Message "Restore point creation succeeded." -Level "SUCCESS"
-                $created = $true
-            } catch {
-                Show-WarningMessage "Attempt #$attempt failed: $($_.Exception.Message)"
-                Log-Message -Message "Checkpoint-Computer attempt #$attempt failed: $($_.Exception.Message)" -Level "WARN"
-                Start-Sleep -Seconds (5 * $attempt)
-            }
-        }
-
-        if (-not $created) {
-            Show-ErrorMessage "Failed to create restore point after $maxRetries attempts."
-            Log-Message -Message "Restore point creation failed after $maxRetries attempts." -Level "ERROR"
-        }
+    } catch {
+        Show-WarningMessage "Unexpected error while creating restore point: $($_.Exception.Message). Continuing with script execution..."
+        Log-Message -Message "Unexpected error while creating restore point: $($_.Exception.Message)" -Level "WARN"
     }
-} catch {
-    Show-ErrorMessage "Unexpected error while creating restore point: $($_.Exception.Message)"
-    Log-Message -Message "Unexpected error while creating restore point: $($_.Exception.Message)" -Level "ERROR"
 }
+
+Write-Host ""
+Prompt-UserContinue
 
 Winfig-Banner
 
@@ -1489,7 +1504,7 @@ if ($InstallPrompt) {
 }
 Write-Host ""
 
-Write-SectionHeader -Title "Thank You For Using Winfig Bootstrap" -Description "https://github.com/Get-Wingig/"
+Write-SectionHeader -Title "Thank You For Using Winfig Bootstrap" -Description "https://github.com/Get-Winfig/"
 Show-WarningMessage -Message "Restart Windows to apply changes"
 Write-Host ""
 Log-Message -Message "Logging Completed." -EndRun
